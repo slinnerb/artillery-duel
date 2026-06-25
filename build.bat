@@ -6,7 +6,7 @@ REM
 REM The result is dist\ArtilleryDuel.exe  -- that single file is what you
 REM upload to a GitHub release and what your friend runs.
 
-pyinstaller --noconfirm --onefile --windowed --name ArtilleryDuel main.py
+py -m PyInstaller --noconfirm --onefile --windowed --name ArtilleryDuel main.py
 
 echo.
 echo Done. Your game is at: dist\ArtilleryDuel.exe

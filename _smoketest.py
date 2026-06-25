@@ -53,6 +53,21 @@ for angle in (42, 45, 48, 50):
 assert hit_with, "no angle/power combo ever hit the far tank — the game isn't winnable"
 print(f"[ok] a fired shot reaches and damages the far tank (angle={hit_with[0]}, power={hit_with[1]})")
 
+# 2c) destructible terrain: a blast lowers the ground, and the client can rebuild
+#     the identical terrain from the snapshot's crater log.
+w = World(777)
+x0 = 500
+before = w.terrain.height_at(x0)
+w._explode(x0, before)                       # blast on the surface
+after = w.terrain.height_at(x0)
+assert after > before, f"ground should drop (y grows down): before={before}, after={after}"
+assert len(w.snapshot()["craters"]) == 1, "crater not recorded in snapshot"
+client_terrain = Terrain(777, W, H)          # fresh terrain from same seed...
+for c in w.snapshot()["craters"]:            # ...plus the crater log...
+    client_terrain.apply_crater(c["x"], c["y"], c["r"])
+assert client_terrain.ground == w.terrain.ground, "client terrain diverged from host"
+print("[ok] destructible terrain digs craters and stays in sync host<->client")
+
 # 3) snapshot is JSON-serialisable (it crosses the network)
 import json
 json.dumps(world.snapshot())

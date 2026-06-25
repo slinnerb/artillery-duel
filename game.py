@@ -35,6 +35,7 @@ WIND_MIN_FRAMES = 180     # how long a wind value lasts (min)
 WIND_MAX_FRAMES = 360     # how long a wind value lasts (max)
 
 BLAST_RADIUS = 60
+CRATER_RADIUS = 40         # how big a bite each shell takes out of the ground
 MAX_DAMAGE = 32
 TANK_HP = 100
 BODY_H = 16
@@ -86,6 +87,18 @@ class Terrain:
     def height_at(self, x):
         xi = int(clamp(x, 0, self.width - 1))
         return self.ground[xi]
+
+    def apply_crater(self, cx, cy, r):
+        """Carve a circular bite out of the ground (lowers the surface)."""
+        left = max(0, int(cx - r))
+        right = min(self.width - 1, int(cx + r))
+        for x in range(left, right + 1):
+            inside = r * r - (x - cx) ** 2
+            if inside <= 0:
+                continue
+            bottom = cy + math.sqrt(inside)   # the lower arc of the removed circle
+            if bottom > self.ground[x]:        # only ever removes ground, never adds
+                self.ground[x] = min(self.height - 2, bottom)
 
     def draw(self, screen):
         pts = [(0, self.height)]
@@ -140,7 +153,8 @@ class World:
         self.tanks = [blue, red]
 
         self.projectiles = []
-        self.explosions = []          # [{x, y, age}]
+        self.explosions = []          # [{x, y, age}] — transient blast flashes
+        self.craters = []             # [{x, y, r}] — permanent terrain damage (synced)
         self.wind = self._rng.uniform(-WIND_MAX, WIND_MAX)
         self.wind_timer = self._rng.randint(WIND_MIN_FRAMES, WIND_MAX_FRAMES)
         self.phase = "playing"        # or "over"
@@ -180,6 +194,8 @@ class World:
         for p in self.projectiles:
             p.update(self.wind)
         self._handle_collisions()
+        for tank in self.tanks:        # tanks settle into freshly-dug craters
+            tank.y = self.terrain.height_at(tank.x)
         self._age_explosions()
 
         self.wind_timer -= 1
@@ -229,6 +245,12 @@ class World:
                 t.hp = max(0.0, t.hp - MAX_DAMAGE * (1 - d / BLAST_RADIUS))
         self.explosions.append({"x": x, "y": y, "age": 0})
 
+        # carve the terrain and log the crater so the client reproduces it exactly
+        self.terrain.apply_crater(x, y, CRATER_RADIUS)
+        # log the EXACT values used so the client carves an identical crater
+        # (JSON round-trips Python floats losslessly)
+        self.craters.append({"x": x, "y": y, "r": CRATER_RADIUS})
+
         alive = [i for i, t in enumerate(self.tanks) if t.hp > 0]
         if len(alive) <= 1:
             self.phase = "over"
@@ -252,6 +274,7 @@ class World:
             ],
             "projectiles": [{"x": p.x, "y": p.y} for p in self.projectiles],
             "explosions": [dict(e) for e in self.explosions],
+            "craters": [dict(c) for c in self.craters],
             "wind": self.wind,
             "phase": self.phase,
             "winner": self.winner,

@@ -61,17 +61,28 @@ The game uses TCP port **50713**.
 
 ---
 
-## Building the .exe to send to your friend
+## Building what you ship
 
-Your friend shouldn't need Python. Build a single self-contained `.exe`:
+Your friend shouldn't need Python. There are two artifacts:
+
+1. **`dist\ArtilleryDuel.exe`** — the raw game binary. This is what the in-game
+   updater downloads to self-update.
+2. **`dist\ArtilleryDuel-Setup.exe`** — the installer. This is what a *new*
+   player downloads. It installs the game and offers to install Tailscale too,
+   so your friend does zero manual networking setup.
 
 ```powershell
 pip install -r requirements.txt pyinstaller
-.\build.bat
+.\build.bat                 # -> dist\ArtilleryDuel.exe
+.\build_installer.bat       # -> dist\ArtilleryDuel-Setup.exe (needs the exe above first)
 ```
 
-This produces **`dist\ArtilleryDuel.exe`** — one file. Send that to your friend
-(or, better, attach it to a GitHub release so the updater can find it).
+**Why the installer puts the game in `%LocalAppData%`, not Program Files:** the
+auto-updater replaces the `.exe` in place, which needs a user-writable folder.
+Program Files would force an admin prompt on every update. Tailscale *does* need
+admin, so the installer runs Tailscale's own installer, which shows a single
+Windows permission prompt. After it's installed, your friend signs into
+Tailscale once (it needs an account) and you're set.
 
 ---
 
@@ -124,9 +135,13 @@ a snapshot every frame; the client just sends its key presses and draws what it
 receives. Simple and impossible to desync. The trade-off is the joiner sees a
 few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
 
+## Shipped
+- **v1.0.1 — Destructible terrain.** Shells blow craters in the ground and
+  tanks settle into them. The host carves the terrain and sends a crater log so
+  the client reproduces identical damage.
+
 ## Ideas for future updates (great excuses to use the update button)
 - New weapons (cluster shell, big bomb, bouncing shot) — pick a weapon before firing
-- **Destructible terrain** — craters that change the battlefield
 - Best-of-5 rounds and a score counter
 - Sound effects and an explosion particle burst
 - Client-side prediction so the joiner's own aim feels instant

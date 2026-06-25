@@ -57,11 +57,21 @@ def check_for_update(timeout=8):
     if not tag or _parse(tag) <= _parse(__version__):
         return None
 
+    # Releases also carry the installer (ArtilleryDuel-Setup.exe). The updater
+    # only swaps the raw game binary, so grab that one specifically and never
+    # the installer.
+    assets = data.get("assets", [])
     url = None
-    for asset in data.get("assets", []):
-        if asset.get("name", "").lower().endswith(".exe"):
+    for asset in assets:
+        if asset.get("name", "").lower() == "artilleryduel.exe":
             url = asset.get("browser_download_url")
             break
+    if not url:  # fallback: any .exe that clearly isn't an installer
+        for asset in assets:
+            name = asset.get("name", "").lower()
+            if name.endswith(".exe") and "setup" not in name and "install" not in name:
+                url = asset.get("browser_download_url")
+                break
     if not url:
         return None
     return {"latest": tag.lstrip("vV"), "url": url, "notes": data.get("body", "")}

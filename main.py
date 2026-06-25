@@ -234,6 +234,7 @@ def run_host(screen, clock, fonts, server):
 
 def run_client(screen, clock, fonts, client):
     terrain = Terrain(client.seed, W, H)
+    craters_applied = 0
     while True:
         snap = client.get_state()
         for e in pygame.event.get():
@@ -252,6 +253,11 @@ def run_client(screen, clock, fonts, client):
             screen.fill(SKY)
             _text_block(screen, fonts, ["Connected! Waiting for the host..."])
         else:
+            craters = snap.get("craters", [])
+            if len(craters) > craters_applied:        # reproduce host's terrain damage
+                for c in craters[craters_applied:]:
+                    terrain.apply_crater(c["x"], c["y"], c["r"])
+                craters_applied = len(craters)
             render(screen, fonts, terrain, snap, local_index=client.index, version=__version__)
         pygame.display.flip()
         clock.tick(FPS)
