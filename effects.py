@@ -54,25 +54,26 @@ class FX:
         self._tick = 0
 
     # -- spawning -----------------------------------------------------------
-    def spawn_explosion(self, x, y):
-        self.particles.append(Particle(x, y, 0, 0, 0, 18, "fireball", 0.9, 2.5, fadepow=1.2))
-        self.particles.append(Particle(x, y, 0, 0, 0, 9, "flash", 2.1, 1.0, fadepow=1.5))
-        for _ in range(13):
+    def spawn_explosion(self, x, y, r=40):
+        s = max(0.6, min(2.2, r / 40.0))                     # scale with crater size
+        self.particles.append(Particle(x, y, 0, 0, 0, 18, "fireball", 0.9 * s, 2.5 * s, fadepow=1.2))
+        self.particles.append(Particle(x, y, 0, 0, 0, 9, "flash", 2.1 * s, 1.0 * s, fadepow=1.5))
+        for _ in range(int(13 * s)):
             a = random.uniform(0, 2 * math.pi)
             sp = random.uniform(3.0, 8.0)
             self.particles.append(Particle(x, y, math.cos(a) * sp, math.sin(a) * sp, 0.18,
                                            random.randint(16, 30), "spark", 1.1, 0.4))
-        for _ in range(7):
+        for _ in range(int(7 * s)):
             self.particles.append(Particle(x, y, random.uniform(-0.9, 0.9), random.uniform(-1.6, -0.5),
-                                           0.0, random.randint(45, 80), "smoke", 0.6, 1.9,
+                                           0.0, random.randint(45, 80), "smoke", 0.6 * s, 1.9 * s,
                                            spin=random.uniform(-2, 2), fadepow=1.4))
-        for _ in range(9):
+        for _ in range(int(9 * s)):
             a = random.uniform(math.pi, 2 * math.pi)         # upward arc
             sp = random.uniform(2.2, 5.5)
             self.particles.append(Particle(x, y, math.cos(a) * sp, math.sin(a) * sp, 0.35,
                                            random.randint(28, 52), "dirt", 1.0, 0.8,
                                            spin=random.uniform(-12, 12)))
-        self.shake = min(14.0, self.shake + 9.0)
+        self.shake = min(16.0, self.shake + 9.0 * s)
 
     def spawn_muzzle(self, x, y, dx, dy):
         self.particles.append(Particle(x, y, 0, 0, 0, 6, "flash", 1.0, 0.4, fadepow=1.4))
@@ -97,7 +98,7 @@ class FX:
         craters = snap.get("craters", [])
         if len(craters) > self.prev_craters:
             for c in craters[self.prev_craters:]:
-                self.spawn_explosion(c["x"], c["y"])
+                self.spawn_explosion(c["x"], c["y"], c.get("r", 40))
                 resources.play("explosion")
         for i, t in enumerate(snap["tanks"]):
             pt = prev["tanks"][i]

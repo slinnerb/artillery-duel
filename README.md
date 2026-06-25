@@ -20,6 +20,7 @@ friend just clicks it and gets the latest build automatically.
 | Move left / right | `A` / `D` or `←` / `→` |
 | Aim barrel up / down | `W` / `S` or `↑` / `↓` |
 | Charge & fire | Hold `SPACE` to build power, release to shoot |
+| Switch weapon | `1` Shell · `2` Big Bomb · `3` Cluster · `4` Bouncer |
 | Back to menu | `ESC` |
 
 Watch the **wind** arrow at the top — it pushes your shells sideways. After
@@ -136,6 +137,10 @@ receives. Simple and impossible to desync. The trade-off is the joiner sees a
 few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
 
 ## Shipped
+- **v1.0.3 — Weapons & rounds.** Pick a weapon with `1`–`4` — Shell, Big Bomb
+  (huge blast), Cluster (airbursts into 5 submunitions), or Bouncer (skips along
+  the terrain). Matches are now best-of-5 with a live scoreboard, and every
+  round gets a fresh battlefield.
 - **v1.0.2 — Sound & visuals (game-feel pass).** Real bundled assets: sprite
   tanks with rotating barrels, textured destructible ground, a dawn sky with
   parallax hills, particle explosions, screen shake, and sound effects
@@ -147,7 +152,6 @@ few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
   the client reproduces identical damage.
 
 ## Ideas for future updates (great excuses to use the update button)
-- New weapons (cluster shell, big bomb, bouncing shot) — pick a weapon before firing
-- Best-of-5 rounds and a score counter
 - Client-side prediction so the joiner's own aim feels instant
 - Hand-drawn art dropped into `assets/` to replace the code-generated sprites
+- A map/terrain-style picker, or power-ups that drop into the arena

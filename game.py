@@ -49,6 +49,15 @@ SPRITE_TURRET_DY = 27      # turret-centre height above tank.y in the tank png
 BARREL_TIP = 30            # muzzle distance from the turret pivot
 BARREL_PIVOT = (2, 5)      # breech point inside barrel_*.png (rotation origin)
 
+# Selectable weapons (number keys 1-4). 'kind': normal / cluster / bounce.
+WEAPONS = [
+    {"name": "Shell",    "blast": 60, "crater": 40, "dmg": 32, "reload": 55,  "speed": 1.00, "kind": "normal",  "bounces": 0},
+    {"name": "Big Bomb", "blast": 94, "crater": 64, "dmg": 52, "reload": 100, "speed": 0.95, "kind": "normal",  "bounces": 0},
+    {"name": "Cluster",  "blast": 44, "crater": 28, "dmg": 20, "reload": 85,  "speed": 1.00, "kind": "cluster", "bounces": 0},
+    {"name": "Bouncer",  "blast": 58, "crater": 38, "dmg": 28, "reload": 70,  "speed": 1.05, "kind": "bounce",  "bounces": 2},
+]
+ROUNDS_TO_WIN = 3          # best of 5
+
 
 def clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
@@ -65,7 +74,15 @@ def read_input(keys):
     }
 
 
-NEUTRAL_INPUT = {"left": False, "right": False, "up": False, "down": False, "fire": False}
+NEUTRAL_INPUT = {"left": False, "right": False, "up": False, "down": False, "fire": False, "weapon": 0}
+
+
+def weapon_from_keys(keys, current):
+    """Number keys 1-4 pick a weapon; otherwise keep the current one."""
+    for key, idx in ((K_1, 0), (K_2, 1), (K_3, 2), (K_4, 3)):
+        if keys[key]:
+            return idx
+    return current
 
 
 # ---------------------------------------------------------------------------
@@ -131,11 +148,17 @@ class Tank:
         self.charging = False
         self.charge = 0.0
         self.reload = 0
+        self.weapon = 0              # index into WEAPONS
 
 
 class Projectile:
-    def __init__(self, x, y, vx, vy, owner):
+    def __init__(self, x, y, vx, vy, owner, kind="normal",
+                 blast=BLAST_RADIUS, crater=CRATER_RADIUS, dmg=MAX_DAMAGE, bounces=0):
         self.x, self.y, self.vx, self.vy, self.owner = x, y, vx, vy, owner
+        self.kind = kind
+        self.blast, self.crater, self.dmg = blast, crater, dmg
+        self.bounces = bounces
+        self.split = False           # cluster: has it burst yet?
 
     def update(self, wind):
         self.vx += wind
@@ -176,6 +199,10 @@ class World:
 
         for i, tank in enumerate(self.tanks):
             inp = inputs[i] or NEUTRAL_INPUT
+            # the remote peer's input is untrusted — clamp the weapon index so a
+            # bad/hostile value can never crash the authoritative host
+            w = inp.get("weapon", tank.weapon)
+            tank.weapon = w if isinstance(w, int) and 0 <= w < len(WEAPONS) else tank.weapon
 
             if inp["up"]:
                 tank.angle = min(89.0, tank.angle + AIM_DEG)
@@ -200,6 +227,7 @@ class World:
 
         for p in self.projectiles:
             p.update(self.wind)
+        self._split_clusters()
         self._handle_collisions()
         for tank in self.tanks:        # tanks settle into freshly-dug craters
             tank.y = self.terrain.height_at(tank.x)
@@ -212,51 +240,69 @@ class World:
 
     def _launch(self, i):
         tank = self.tanks[i]
-        power = max(POWER_MIN, tank.charge)
+        wep = WEAPONS[tank.weapon]
+        power = max(POWER_MIN, tank.charge) * wep["speed"]
         rad = math.radians(tank.angle)
         cos, sin = math.cos(rad), math.sin(rad)
         turret_y = tank.y - BODY_H
         tip_x = tank.x + tank.facing * cos * (BARREL_LEN + 6)
         tip_y = turret_y - sin * (BARREL_LEN + 6)
-        vx = tank.facing * cos * power
-        vy = -sin * power
-        self.projectiles.append(Projectile(tip_x, tip_y, vx, vy, owner=i))
+        self.projectiles.append(Projectile(
+            tip_x, tip_y, tank.facing * cos * power, -sin * power, owner=i,
+            kind=wep["kind"], blast=wep["blast"], crater=wep["crater"],
+            dmg=wep["dmg"], bounces=wep["bounces"]))
         tank.charging = False
         tank.charge = 0.0
-        tank.reload = RELOAD_FRAMES
+        tank.reload = wep["reload"]
+
+    def _split_clusters(self):
+        out = []
+        for p in self.projectiles:
+            if p.kind == "cluster" and not p.split and p.vy >= 0:
+                for k in range(5):           # airburst at the top of the arc
+                    out.append(Projectile(
+                        p.x, p.y, p.vx * 0.5 + (k - 2) * 1.7, p.vy - 1.2, owner=p.owner,
+                        kind="normal", blast=40, crater=24, dmg=15))
+            else:
+                out.append(p)
+        self.projectiles = out
 
     def _handle_collisions(self):
         remaining = []
         for p in self.projectiles:
             if p.x < -60 or p.x > W + 60 or p.y > H + 300:
                 continue  # left the battlefield
-            exploded = False
-            if p.y >= self.terrain.height_at(p.x):
-                self._explode(p.x, self.terrain.height_at(p.x))
-                exploded = True
-            else:
-                for t in self.tanks:
-                    cy = t.y - BODY_H * 0.5
-                    if (p.x - t.x) ** 2 + (p.y - cy) ** 2 <= TANK_RADIUS ** 2:
-                        self._explode(p.x, p.y)
-                        exploded = True
-                        break
-            if not exploded:
+            gy = self.terrain.height_at(p.x)
+            if p.y >= gy:                                    # hit the ground
+                if p.kind == "bounce" and p.bounces > 0:
+                    p.bounces -= 1
+                    p.y = gy - 3
+                    p.vy = -abs(p.vy) * 0.6
+                    p.vx *= 0.82
+                    remaining.append(p)
+                    continue
+                self._explode(p.x, gy, p.blast, p.crater, p.dmg)
+                continue
+            hit = False
+            for t in self.tanks:                             # hit a tank
+                cy = t.y - BODY_H * 0.5
+                if (p.x - t.x) ** 2 + (p.y - cy) ** 2 <= TANK_RADIUS ** 2:
+                    self._explode(p.x, p.y, p.blast, p.crater, p.dmg)
+                    hit = True
+                    break
+            if not hit:
                 remaining.append(p)
         self.projectiles = remaining
 
-    def _explode(self, x, y):
+    def _explode(self, x, y, blast=BLAST_RADIUS, crater=CRATER_RADIUS, dmg=MAX_DAMAGE):
         for t in self.tanks:
             d = math.hypot(x - t.x, y - (t.y - BODY_H * 0.5))
-            if d < BLAST_RADIUS:
-                t.hp = max(0.0, t.hp - MAX_DAMAGE * (1 - d / BLAST_RADIUS))
+            if d < blast:
+                t.hp = max(0.0, t.hp - dmg * (1 - d / blast))
         self.explosions.append({"x": x, "y": y, "age": 0})
-
-        # carve the terrain and log the crater so the client reproduces it exactly
-        self.terrain.apply_crater(x, y, CRATER_RADIUS)
-        # log the EXACT values used so the client carves an identical crater
-        # (JSON round-trips Python floats losslessly)
-        self.craters.append({"x": x, "y": y, "r": CRATER_RADIUS})
+        # carve the terrain and log the EXACT crater so the client reproduces it
+        self.terrain.apply_crater(x, y, crater)
+        self.craters.append({"x": x, "y": y, "r": crater})
 
         alive = [i for i, t in enumerate(self.tanks) if t.hp > 0]
         if len(alive) <= 1:
@@ -275,7 +321,7 @@ class World:
                 {
                     "x": t.x, "y": t.y, "angle": t.angle, "facing": t.facing,
                     "hp": t.hp, "charging": t.charging, "charge": t.charge,
-                    "name": t.name, "color": list(t.color),
+                    "name": t.name, "color": list(t.color), "weapon": t.weapon,
                 }
                 for t in self.tanks
             ],
@@ -345,10 +391,49 @@ def _draw_hp(screen, font, t, x, y, right=False):
     screen.blit(label, (x, y))
 
 
+def _draw_scoreboard(screen, fonts, snap):
+    small, font, _ = fonts
+    scores = snap.get("scores")
+    if scores is None:
+        return
+    blue, red = tuple(snap["tanks"][0]["color"]), tuple(snap["tanks"][1]["color"])
+    a = font.render(str(scores[0]), True, blue)
+    mid = font.render("  -  ", True, (210, 210, 220))
+    b = font.render(str(scores[1]), True, red)
+    x = W // 2 - (a.get_width() + mid.get_width() + b.get_width()) // 2
+    screen.blit(a, (x, 6)); x += a.get_width()
+    screen.blit(mid, (x, 6)); x += mid.get_width()
+    screen.blit(b, (x, 6))
+    info = small.render(f"Round {snap.get('round', 1)}  -  first to {snap.get('needed', ROUNDS_TO_WIN)}",
+                        True, (175, 185, 205))
+    screen.blit(info, (W // 2 - info.get_width() // 2, 6 + a.get_height()))
+
+
+def _draw_weapons(screen, small, snap, local_index):
+    if not (0 <= local_index < len(snap["tanks"])):
+        return
+    sel = snap["tanks"][local_index].get("weapon", 0)
+    surfs = [small.render(f"{i + 1} {w['name']}", True, (236, 238, 245)) for i, w in enumerate(WEAPONS)]
+    pad, gap, h = 12, 8, 26
+    widths = [s.get_width() + pad * 2 for s in surfs]
+    x = W // 2 - (sum(widths) + gap * (len(surfs) - 1)) // 2
+    y = H - 98
+    for i, s in enumerate(surfs):
+        rect = pygame.Rect(x, y, widths[i], h)
+        if i == sel:
+            pygame.draw.rect(screen, (70, 95, 140), rect, border_radius=6)
+            pygame.draw.rect(screen, (150, 190, 240), rect, 2, border_radius=6)
+        else:
+            pygame.draw.rect(screen, (28, 34, 50), rect, border_radius=6)
+            pygame.draw.rect(screen, (66, 76, 100), rect, 1, border_radius=6)
+        screen.blit(s, (x + pad, y + (h - s.get_height()) // 2))
+        x += widths[i] + gap
+
+
 def _draw_wind(screen, small, wind):
-    cx, cy = W // 2, 32
+    cx, cy = W // 2, 68
     lbl = small.render("WIND", True, (200, 200, 215))
-    screen.blit(lbl, (cx - lbl.get_width() // 2, cy - 24))
+    screen.blit(lbl, (cx - lbl.get_width() // 2, cy - 16))
     length = int(wind / WIND_MAX * 64)
     pygame.draw.line(screen, (225, 225, 240), (cx, cy), (cx + length, cy), 3)
     if abs(length) > 4:
@@ -384,6 +469,7 @@ def render(screen, fonts, terrain, snap, local_index, version, fx=None):
     _draw_hp(screen, font, snap["tanks"][0], 16, 14)
     _draw_hp(screen, font, snap["tanks"][1], W - 16, 14, right=True)
     _draw_wind(screen, small, snap["wind"])
+    _draw_scoreboard(screen, fonts, snap)
 
     if 0 <= local_index < len(snap["tanks"]):
         me = snap["tanks"][local_index]
@@ -397,21 +483,33 @@ def render(screen, fonts, terrain, snap, local_index, version, fx=None):
             lbl = small.render("POWER", True, (220, 220, 235))
             screen.blit(lbl, (W // 2 - lbl.get_width() // 2, H - 64))
 
+    _draw_weapons(screen, small, snap, local_index)
+
     hint = small.render(
-        "Move: A/D or arrows   Aim: W/S or arrows   Hold SPACE to charge, release to fire   ESC: menu",
-        True, (170, 180, 200))
+        "Move: A/D   Aim: W/S   Weapon: 1-4   Fire: hold & release SPACE   ESC: menu",
+        True, (185, 192, 208))
     screen.blit(hint, (W // 2 - hint.get_width() // 2, H - 22))
 
     ver = small.render(f"v{version}", True, (130, 140, 160))
     screen.blit(ver, (12, H - 22))
 
-    if snap["phase"] == "over":
+    mphase = snap.get("match_phase", "playing")
+    if mphase in ("round_over", "match_over"):
         overlay = pygame.Surface((W, H), pygame.SRCALPHA)
-        overlay.fill((10, 12, 20, 185))
+        overlay.fill((10, 12, 20, 180))
         screen.blit(overlay, (0, 0))
-        w = snap["winner"]
-        msg = "DRAW!" if w is None else f"{snap['tanks'][w]['name'].upper()} WINS!"
-        t = big.render(msg, True, (255, 235, 160))
-        screen.blit(t, (W // 2 - t.get_width() // 2, H // 2 - 60))
-        s = font.render("Press ENTER for menu", True, (220, 220, 235))
-        screen.blit(s, (W // 2 - s.get_width() // 2, H // 2 + 12))
+        scores = snap.get("scores", [0, 0])
+        rw = snap.get("round_winner")
+        if mphase == "round_over":
+            title = "ROUND DRAW" if rw is None else f"{snap['tanks'][rw]['name'].upper()} WINS THE ROUND"
+            sub = "next round starting..."
+        else:
+            mw = 0 if scores[0] >= scores[1] else 1
+            title = f"{snap['tanks'][mw]['name'].upper()} WINS THE MATCH!"
+            sub = "Press ENTER for menu"
+        t = big.render(title, True, (255, 235, 160))
+        screen.blit(t, (W // 2 - t.get_width() // 2, H // 2 - 72))
+        sc = font.render(f"{scores[0]}   -   {scores[1]}", True, (235, 235, 245))
+        screen.blit(sc, (W // 2 - sc.get_width() // 2, H // 2 - 8))
+        s = font.render(sub, True, (212, 218, 232))
+        screen.blit(s, (W // 2 - s.get_width() // 2, H // 2 + 36))

@@ -69,6 +69,7 @@ class Server:
         self._input = {"left": False, "right": False, "up": False, "down": False, "fire": False}
         self._lock = threading.Lock()
         self._craters_sent = 0   # how many craters the client already has
+        self._cur_round = None   # reset crater counting when the round changes
 
     def start_listening(self):
         self._listen = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -102,6 +103,11 @@ class Server:
     def send_state(self, snapshot):
         if not self.connected or self._conn is None:
             return
+        # A new round resets the terrain, so resend craters from scratch.
+        rnd = snapshot.get("round")
+        if rnd != self._cur_round:
+            self._cur_round = rnd
+            self._craters_sent = 0
         # Send only craters the client doesn't have yet (it accumulates them).
         # Copy the dict so the host's own full snapshot stays intact for its FX.
         craters = snapshot.get("craters", [])
@@ -134,6 +140,7 @@ class Client:
         self._sock = None
         self._state = None
         self._all_craters = []   # rebuilt from per-message crater deltas
+        self._cur_round = None   # reset the accumulator on a new round
         self._lock = threading.Lock()
 
     def connect(self, host, port=PORT, timeout=6.0):
@@ -165,6 +172,10 @@ class Client:
             elif t == "state":
                 data = msg.get("data")
                 if data is not None:
+                    rnd = data.get("round")
+                    if rnd != self._cur_round:        # new round -> fresh terrain
+                        self._cur_round = rnd
+                        self._all_craters = []
                     # accumulate crater deltas back into the full list (every
                     # message is seen here even if render skips some frames)
                     self._all_craters.extend(data.get("craters", []))

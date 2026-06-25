@@ -14,7 +14,7 @@ fonts = (pygame.font.SysFont("consolas", 16),
 import resources
 resources.load()
 import effects
-from game import World, Terrain, render, NEUTRAL_INPUT, W, H
+from game import World, Terrain, render, NEUTRAL_INPUT, WEAPONS, W, H
 from updater import _parse
 
 assert len(resources._SPRITES) == 13, "sprites failed to load"
@@ -100,6 +100,61 @@ finally:
 assert "charge" in plays, f"charge sound should fire on a frame-0 charge, got {plays}"
 print("[ok] first-frame rising edge triggers its sound (charge)")
 
+
+def _launch_weapon(seed, widx, angle=45, power=15.0):
+    world = World(seed)
+    world.wind = 0.0
+    world.wind_timer = 10 ** 9
+    t = world.tanks[0]
+    t.weapon, t.angle, t.charge = widx, float(angle), power
+    world._launch(0)
+    return world
+
+# 2f) each weapon launches the right kind of projectile
+assert _launch_weapon(99, 0).projectiles[-1].crater == 40, "shell"
+big = _launch_weapon(99, 1).projectiles[-1]
+assert big.crater == 64 and big.blast == 94, "big bomb should be bigger"
+assert _launch_weapon(99, 2).projectiles[-1].kind == "cluster", "cluster"
+bnc = _launch_weapon(99, 3).projectiles[-1]
+assert bnc.kind == "bounce" and bnc.bounces == 2, "bouncer"
+print("[ok] weapons launch the correct projectile types")
+
+# 2g) cluster shell airbursts into several submunitions
+wc = _launch_weapon(99, 2, angle=72, power=17.0)
+maxn = 1
+for _ in range(400):
+    wc.step([NEUTRAL_INPUT, NEUTRAL_INPUT])
+    maxn = max(maxn, len(wc.projectiles))
+    if not wc.projectiles:
+        break
+assert maxn >= 4, f"cluster should burst into multiple submunitions, saw max {maxn}"
+print(f"[ok] cluster shell airbursts (max {maxn} projectiles in flight)")
+
+# 2h) bouncer skips off the terrain at least once before exploding
+wb = _launch_weapon(99, 3, angle=22, power=15.0)
+prev_b = wb.projectiles[0].bounces
+bounced = False
+for _ in range(400):
+    wb.step([NEUTRAL_INPUT, NEUTRAL_INPUT])
+    if wb.projectiles and wb.projectiles[0].bounces < prev_b:
+        bounced = True
+        prev_b = wb.projectiles[0].bounces
+    if not wb.projectiles:
+        break
+assert bounced, "bouncer should bounce before exploding"
+print("[ok] bouncer skips off the terrain")
+
+# 2i) host clamps a malformed remote weapon index (no crash on fire)
+wsafe = World(99)
+for badval in (99, -1, "x", None):
+    inp = dict(NEUTRAL_INPUT)
+    inp["weapon"] = badval
+    wsafe.step([NEUTRAL_INPUT, inp])           # red tank fed a bad weapon index
+    assert 0 <= wsafe.tanks[1].weapon < len(WEAPONS), f"weapon not clamped: {wsafe.tanks[1].weapon}"
+wsafe.tanks[1].charge = 15.0
+wsafe._launch(1)                               # must not raise IndexError
+print("[ok] host clamps malformed remote weapon index")
+
 # 3) snapshot is JSON-serialisable (it crosses the network)
 import json
 json.dumps(world.snapshot())
@@ -134,7 +189,12 @@ srv.send_state({"hp": 98, "craters": [{"x": 1, "y": 2, "r": 40}, {"x": 3, "y": 4
 time.sleep(0.2)
 st = cli.get_state()
 assert len(st["craters"]) == 2, f"client should have accumulated 2 craters: {st}"
+# a new round resets the crater accumulator on both sides
+srv.send_state({"round": 2, "craters": [{"x": 9, "y": 9, "r": 40}]})
+time.sleep(0.2)
+st = cli.get_state()
+assert st["round"] == 2 and len(st["craters"]) == 1, f"round change should reset craters: {st}"
 cli.close(); srv.close()
-print("[ok] netcode loopback: seed, input, and crater-delta state crossed the wire")
+print("[ok] netcode loopback: input, crater-delta, and round-reset all crossed the wire")
 
 print("\nALL SMOKE TESTS PASSED")

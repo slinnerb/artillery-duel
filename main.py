@@ -7,7 +7,8 @@ import pygame
 from pygame.locals import *  # noqa: F401,F403
 
 from version import __version__
-from game import W, H, FPS, SKY, World, Terrain, render, read_input
+from game import (W, H, FPS, SKY, World, Terrain, render, read_input,
+                  weapon_from_keys, NEUTRAL_INPUT, ROUNDS_TO_WIN)
 from netcode import Server, Client, PORT, local_ips
 from updater import check_for_update, apply_update, cleanup_old, is_frozen
 import resources
@@ -213,22 +214,56 @@ def do_join(screen, clock, fonts, address):
 
 
 def run_host(screen, clock, fonts, server):
-    world = World(server.seed)
+    seed = server.seed
+    world = World(seed)
     fx = effects.FX()
+    scores = [0, 0]
+    rnd = 1
+    mphase = "playing"            # playing -> round_over -> (next round) | match_over
+    round_winner = None
+    timer = 0
+    weapon = 0
     while True:
         for e in pygame.event.get():
             if e.type == QUIT:
                 _quit()
             if e.type == KEYDOWN and e.key == K_ESCAPE:
                 return
-            if e.type == KEYDOWN and e.key == K_RETURN and world.phase == "over":
+            if e.type == KEYDOWN and e.key == K_RETURN and mphase == "match_over":
                 return
         if not server.connected:
             message_screen(screen, clock, fonts, "Opponent left the game.")
             return
 
-        world.step([read_input(pygame.key.get_pressed()), server.get_input()])
+        keys = pygame.key.get_pressed()
+        weapon = weapon_from_keys(keys, weapon)
+
+        if mphase == "playing":
+            inp = read_input(keys)
+            inp["weapon"] = weapon
+            world.step([inp, server.get_input()])
+            if world.phase == "over":
+                round_winner = world.winner
+                if round_winner is not None:
+                    scores[round_winner] += 1
+                mphase = "match_over" if max(scores) >= ROUNDS_TO_WIN else "round_over"
+                timer = int(FPS * 2.6)
+        else:
+            world.step([NEUTRAL_INPUT, NEUTRAL_INPUT])    # frozen; let FX fade
+            if mphase == "round_over":
+                timer -= 1
+                if timer <= 0:                            # start the next round
+                    rnd += 1
+                    seed = (server.seed * 1103515245 + rnd * 12345) & 0x7FFFFFFF
+                    world = World(seed)
+                    fx = effects.FX()
+                    mphase = "playing"
+                    round_winner = None
+
         snap = world.snapshot()
+        snap.update({"scores": scores, "round": rnd, "seed": seed,
+                     "needed": ROUNDS_TO_WIN, "match_phase": mphase,
+                     "round_winner": round_winner})
         server.send_state(snap)
         fx.observe(snap, 0)
         fx.update()
@@ -241,6 +276,8 @@ def run_client(screen, clock, fonts, client):
     terrain = Terrain(client.seed, W, H)
     craters_applied = 0
     fx = effects.FX()
+    my_round = None
+    weapon = 0
     while True:
         snap = client.get_state()
         for e in pygame.event.get():
@@ -248,19 +285,29 @@ def run_client(screen, clock, fonts, client):
                 _quit()
             if e.type == KEYDOWN and e.key == K_ESCAPE:
                 return
-            if e.type == KEYDOWN and e.key == K_RETURN and snap and snap["phase"] == "over":
+            if e.type == KEYDOWN and e.key == K_RETURN and snap and snap.get("match_phase") == "match_over":
                 return
         if not client.connected:
             message_screen(screen, clock, fonts, "Disconnected from host.")
             return
 
-        client.send_input(read_input(pygame.key.get_pressed()))
+        keys = pygame.key.get_pressed()
+        weapon = weapon_from_keys(keys, weapon)
+        inp = read_input(keys)
+        inp["weapon"] = weapon
+        client.send_input(inp)
+
         if snap is None:
             screen.fill(SKY)
             _text_block(screen, fonts, ["Connected! Waiting for the host..."])
         else:
+            if snap.get("round") != my_round:             # new round -> fresh terrain
+                terrain = Terrain(snap.get("seed", client.seed), W, H)
+                craters_applied = 0
+                fx = effects.FX()
+                my_round = snap.get("round")
             craters = snap.get("craters", [])
-            if len(craters) > craters_applied:        # reproduce host's terrain damage
+            if len(craters) > craters_applied:            # reproduce host's terrain damage
                 for c in craters[craters_applied:]:
                     terrain.apply_crater(c["x"], c["y"], c["r"])
                 craters_applied = len(craters)
