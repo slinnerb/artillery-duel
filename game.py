@@ -12,6 +12,8 @@ import random
 import pygame
 from pygame.locals import *  # noqa: F401,F403 (K_*, QUIT, etc.)
 
+import resources
+
 # ---------------------------------------------------------------------------
 # Tunables — tweak these to change game feel.
 # ---------------------------------------------------------------------------
@@ -41,6 +43,11 @@ TANK_HP = 100
 BODY_H = 16
 BARREL_LEN = 26
 TANK_RADIUS = 22
+
+# sprite anchoring (must match the generated PNGs in assets/sprites)
+SPRITE_TURRET_DY = 27      # turret-centre height above tank.y in the tank png
+BARREL_TIP = 30            # muzzle distance from the turret pivot
+BARREL_PIVOT = (2, 5)      # breech point inside barrel_*.png (rotation origin)
 
 
 def clamp(v, lo, hi):
@@ -284,16 +291,46 @@ class World:
 # ---------------------------------------------------------------------------
 # Rendering (works on any snapshot dict, host or client)
 # ---------------------------------------------------------------------------
-def _draw_tank(screen, t):
+_scene = _textured = _mask = None
+
+
+def _surfaces():
+    global _scene, _textured, _mask
+    if _scene is None:
+        _scene = pygame.Surface((W, H)).convert()
+        _textured = pygame.Surface((W, H), pygame.SRCALPHA).convert_alpha()
+        _mask = pygame.Surface((W, H), pygame.SRCALPHA).convert_alpha()
+    return _scene, _textured, _mask
+
+
+def _blit_pivot(dest, image, pos, origin, angle):
+    """Blit image rotated by angle so that image-point `origin` lands on `pos`."""
+    rect = image.get_rect(topleft=(pos[0] - origin[0], pos[1] - origin[1]))
+    offset = pygame.math.Vector2(pos) - rect.center
+    offset.rotate_ip(-angle)
+    rotated = pygame.transform.rotate(image, angle)
+    dest.blit(rotated, rotated.get_rect(center=(pos[0] - offset.x, pos[1] - offset.y)))
+
+
+def _draw_terrain(scene, terrain):
+    _, textured, mask = _surfaces()
+    pts = [(0, H)] + [(x, terrain.ground[x]) for x in range(0, W, 2)] + [(W, terrain.ground[-1]), (W, H)]
+    mask.fill((0, 0, 0, 0))
+    pygame.draw.polygon(mask, (255, 255, 255, 255), pts)
+    textured.blit(resources.img("ground"), (0, 0))
+    textured.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    scene.blit(textured, (0, 0))
+    rim = [(x, terrain.ground[x]) for x in range(0, W, 2)]
+    pygame.draw.lines(scene, (126, 172, 98), False, rim, 3)
+
+
+def _draw_tank(scene, t, index):
     x, y = t["x"], t["y"]
-    col = tuple(t["color"])
-    pygame.draw.rect(screen, (40, 40, 48), pygame.Rect(int(x - 24), int(y - 5), 48, 7), border_radius=3)
-    pygame.draw.rect(screen, col, pygame.Rect(int(x - 22), int(y - BODY_H), 44, BODY_H), border_radius=4)
-    pygame.draw.circle(screen, col, (int(x), int(y - BODY_H)), 9)
-    rad = math.radians(t["angle"])
-    bx = x + t["facing"] * math.cos(rad) * BARREL_LEN
-    by = (y - BODY_H) - math.sin(rad) * BARREL_LEN
-    pygame.draw.line(screen, (32, 32, 38), (int(x), int(y - BODY_H)), (int(bx), int(by)), 6)
+    color = "blue" if index == 0 else "red"
+    angle = t["angle"] if t["facing"] > 0 else 180 - t["angle"]
+    _blit_pivot(scene, resources.img("barrel_" + color), (x, y - SPRITE_TURRET_DY), BARREL_PIVOT, angle)
+    body = resources.img("tank_" + color)
+    scene.blit(body, (x - body.get_width() / 2, y - body.get_height()))
 
 
 def _draw_hp(screen, font, t, x, y, right=False):
@@ -321,22 +358,28 @@ def _draw_wind(screen, small, wind):
         pygame.draw.line(screen, (225, 225, 240), (ex, cy), (ex - 7 * d, cy + 5), 3)
 
 
-def render(screen, fonts, terrain, snap, local_index, version):
+def render(screen, fonts, terrain, snap, local_index, version, fx=None):
     small, font, big = fonts
-    screen.fill(SKY)
-    terrain.draw(screen)
+    scene, _, _ = _surfaces()
+
+    scene.blit(resources.img("sky"), (0, 0))
+    scene.blit(resources.img("hills_far"), (0, 80))
+    scene.blit(resources.img("hills_near"), (0, 135))
+    _draw_terrain(scene, terrain)
+
+    for i, t in enumerate(snap["tanks"]):
+        _draw_tank(scene, t, i)
 
     for p in snap["projectiles"]:
-        pygame.draw.circle(screen, (20, 20, 25), (int(p["x"]), int(p["y"])), 5)
-        pygame.draw.circle(screen, (255, 220, 120), (int(p["x"]), int(p["y"])), 3)
+        pygame.draw.circle(scene, (24, 22, 26), (int(p["x"]), int(p["y"])), 5)
+        pygame.draw.circle(scene, (255, 222, 120), (int(p["x"]), int(p["y"])), 3)
 
-    for e in snap["explosions"]:
-        r = 8 + e["age"] * 4
-        pygame.draw.circle(screen, (255, 170, 60), (int(e["x"]), int(e["y"])), int(r), 3)
-        pygame.draw.circle(screen, (255, 230, 150), (int(e["x"]), int(e["y"])), max(2, int(r * 0.4)))
+    if fx is not None:
+        fx.draw(scene)
 
-    for t in snap["tanks"]:
-        _draw_tank(screen, t)
+    dx, dy = fx.shake_offset() if fx is not None else (0, 0)
+    screen.fill((8, 9, 14))
+    screen.blit(scene, (int(dx), int(dy)))
 
     _draw_hp(screen, font, snap["tanks"][0], 16, 14)
     _draw_hp(screen, font, snap["tanks"][1], W - 16, 14, right=True)

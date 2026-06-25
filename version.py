@@ -5,4 +5,4 @@ release tag (e.g. v1.0.1). The in-game updater compares this number to the
 latest release tag to decide whether an update is available.
 """
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"

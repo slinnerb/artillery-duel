@@ -10,6 +10,8 @@ from version import __version__
 from game import W, H, FPS, SKY, World, Terrain, render, read_input
 from netcode import Server, Client, PORT, local_ips
 from updater import check_for_update, apply_update, cleanup_old, is_frozen
+import resources
+import effects
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +214,7 @@ def do_join(screen, clock, fonts, address):
 
 def run_host(screen, clock, fonts, server):
     world = World(server.seed)
+    fx = effects.FX()
     while True:
         for e in pygame.event.get():
             if e.type == QUIT:
@@ -227,7 +230,9 @@ def run_host(screen, clock, fonts, server):
         world.step([read_input(pygame.key.get_pressed()), server.get_input()])
         snap = world.snapshot()
         server.send_state(snap)
-        render(screen, fonts, world.terrain, snap, local_index=0, version=__version__)
+        fx.observe(snap, 0)
+        fx.update()
+        render(screen, fonts, world.terrain, snap, local_index=0, version=__version__, fx=fx)
         pygame.display.flip()
         clock.tick(FPS)
 
@@ -235,6 +240,7 @@ def run_host(screen, clock, fonts, server):
 def run_client(screen, clock, fonts, client):
     terrain = Terrain(client.seed, W, H)
     craters_applied = 0
+    fx = effects.FX()
     while True:
         snap = client.get_state()
         for e in pygame.event.get():
@@ -258,7 +264,9 @@ def run_client(screen, clock, fonts, client):
                 for c in craters[craters_applied:]:
                     terrain.apply_crater(c["x"], c["y"], c["r"])
                 craters_applied = len(craters)
-            render(screen, fonts, terrain, snap, local_index=client.index, version=__version__)
+            fx.observe(snap, client.index)
+            fx.update()
+            render(screen, fonts, terrain, snap, local_index=client.index, version=__version__, fx=fx)
         pygame.display.flip()
         clock.tick(FPS)
 
@@ -339,6 +347,7 @@ def main():
         pygame.font.SysFont("consolas", 22),
         pygame.font.SysFont("consolas", 54, bold=True),
     )
+    resources.load()
 
     while True:
         choice = menu_screen(screen, clock, fonts)

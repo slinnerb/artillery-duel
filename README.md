@@ -136,6 +136,12 @@ receives. Simple and impossible to desync. The trade-off is the joiner sees a
 few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
 
 ## Shipped
+- **v1.0.2 — Sound & visuals (game-feel pass).** Real bundled assets: sprite
+  tanks with rotating barrels, textured destructible ground, a dawn sky with
+  parallax hills, particle explosions, screen shake, and sound effects
+  (fire / charge / explosion / hit / win). Assets live in `assets/`, authored by
+  `tools/make_sounds.py` and `tools/make_sprites.py`, and are bundled inside the
+  `.exe`. Want nicer art? Just replace the matching file in `assets/` and rebuild.
 - **v1.0.1 — Destructible terrain.** Shells blow craters in the ground and
   tanks settle into them. The host carves the terrain and sends a crater log so
   the client reproduces identical damage.
@@ -143,5 +149,5 @@ few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
 ## Ideas for future updates (great excuses to use the update button)
 - New weapons (cluster shell, big bomb, bouncing shot) — pick a weapon before firing
 - Best-of-5 rounds and a score counter
-- Sound effects and an explosion particle burst
 - Client-side prediction so the joiner's own aim feels instant
+- Hand-drawn art dropped into `assets/` to replace the code-generated sprites

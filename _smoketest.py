@@ -6,13 +6,19 @@ os.environ["SDL_AUDIODRIVER"] = "dummy"
 import time
 import pygame
 pygame.init()
-screen = pygame.Surface((1000, 600))
+screen = pygame.display.set_mode((1000, 600))
 fonts = (pygame.font.SysFont("consolas", 16),
          pygame.font.SysFont("consolas", 22),
          pygame.font.SysFont("consolas", 54, bold=True))
 
+import resources
+resources.load()
+import effects
 from game import World, Terrain, render, NEUTRAL_INPUT, W, H
 from updater import _parse
+
+assert len(resources._SPRITES) == 13, "sprites failed to load"
+print(f"[ok] assets loaded ({len(resources._SPRITES)} sprites, audio_ok={resources.audio_ok})")
 
 # 1) terrain determinism: same seed -> identical ground
 t1 = Terrain(12345); t2 = Terrain(12345)
@@ -68,6 +74,32 @@ for c in w.snapshot()["craters"]:            # ...plus the crater log...
 assert client_terrain.ground == w.terrain.ground, "client terrain diverged from host"
 print("[ok] destructible terrain digs craters and stays in sync host<->client")
 
+# 2d) juice layer: FX observes snapshots, spawns particles on a blast, renders
+fx = effects.FX()
+w = World(777)
+fx.observe(w.snapshot(), 0)
+fx.update()
+w._explode(w.tanks[1].x, w.tanks[1].y - 8)        # crater -> explosion event
+fx.observe(w.snapshot(), 0)
+assert len(fx.particles) > 0, "explosion should spawn particles"
+fx.update()
+render(screen, fonts, w.terrain, w.snapshot(), local_index=0, version="test", fx=fx)
+print(f"[ok] FX layer spawns particles and renders ({len(fx.particles)} live)")
+
+# 2e) a rising edge on the very first frame still fires its sound (charge)
+fx2 = effects.FX()
+w2 = World(5)
+w2.tanks[0].charging = True                  # already charging on frame 0
+plays = []
+_orig_play = resources.play
+resources.play = lambda n: plays.append(n)
+try:
+    fx2.observe(w2.snapshot(), 0)
+finally:
+    resources.play = _orig_play
+assert "charge" in plays, f"charge sound should fire on a frame-0 charge, got {plays}"
+print("[ok] first-frame rising edge triggers its sound (charge)")
+
 # 3) snapshot is JSON-serialisable (it crosses the network)
 import json
 json.dumps(world.snapshot())
@@ -93,11 +125,16 @@ cli.send_input({"left": True, "right": False, "up": False, "down": False, "fire"
 time.sleep(0.2)
 got = srv.get_input()
 assert got["left"] is True and got["fire"] is True, f"host did not get client input: {got}"
-# host sends a state, client should receive it
-srv.send_state({"hello": 42})
+# host sends state; client reconstructs the full crater list from deltas
+srv.send_state({"hp": 99, "craters": [{"x": 1, "y": 2, "r": 40}]})
 time.sleep(0.2)
-assert cli.get_state() == {"hello": 42}, f"client did not get state: {cli.get_state()}"
+st = cli.get_state()
+assert st["hp"] == 99 and st["craters"] == [{"x": 1, "y": 2, "r": 40}], st
+srv.send_state({"hp": 98, "craters": [{"x": 1, "y": 2, "r": 40}, {"x": 3, "y": 4, "r": 40}]})
+time.sleep(0.2)
+st = cli.get_state()
+assert len(st["craters"]) == 2, f"client should have accumulated 2 craters: {st}"
 cli.close(); srv.close()
-print("[ok] netcode loopback: seed, input, and state all crossed the wire")
+print("[ok] netcode loopback: seed, input, and crater-delta state crossed the wire")
 
 print("\nALL SMOKE TESTS PASSED")

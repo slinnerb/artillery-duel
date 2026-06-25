@@ -68,6 +68,7 @@ class Server:
         self._conn = None
         self._input = {"left": False, "right": False, "up": False, "down": False, "fire": False}
         self._lock = threading.Lock()
+        self._craters_sent = 0   # how many craters the client already has
 
     def start_listening(self):
         self._listen = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -101,8 +102,14 @@ class Server:
     def send_state(self, snapshot):
         if not self.connected or self._conn is None:
             return
+        # Send only craters the client doesn't have yet (it accumulates them).
+        # Copy the dict so the host's own full snapshot stays intact for its FX.
+        craters = snapshot.get("craters", [])
+        data = dict(snapshot)
+        data["craters"] = craters[self._craters_sent:]
         try:
-            _send(self._conn, {"t": "state", "data": snapshot})
+            _send(self._conn, {"t": "state", "data": data})
+            self._craters_sent = len(craters)
         except OSError:
             self.connected = False
 
@@ -126,6 +133,7 @@ class Client:
         self.index = 1
         self._sock = None
         self._state = None
+        self._all_craters = []   # rebuilt from per-message crater deltas
         self._lock = threading.Lock()
 
     def connect(self, host, port=PORT, timeout=6.0):
@@ -155,8 +163,14 @@ class Client:
                 self.seed = msg.get("seed")
                 self.index = msg.get("you", 1)
             elif t == "state":
-                with self._lock:
-                    self._state = msg.get("data")
+                data = msg.get("data")
+                if data is not None:
+                    # accumulate crater deltas back into the full list (every
+                    # message is seen here even if render skips some frames)
+                    self._all_craters.extend(data.get("craters", []))
+                    data["craters"] = list(self._all_craters)
+                    with self._lock:
+                        self._state = data
         self.connected = False
 
     def send_input(self, inp):
