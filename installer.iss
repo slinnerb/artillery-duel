@@ -7,7 +7,7 @@
 
 #define MyAppName "Artillery Duel"
 #define MyAppExeName "ArtilleryDuel.exe"
-#define MyAppVersion "1.0.5"
+#define MyAppVersion "1.0.8"
 #define MyAppPublisher "slinnerb"
 #define MyAppURL "https://github.com/slinnerb/artillery-duel"
 
@@ -37,10 +37,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
 Name: "installtailscale"; Description: "Install Tailscale (lets you play over the internet)"; GroupDescription: "Networking:"; Check: TailscaleMissing
+Name: "firewallrule"; Description: "Allow friends to connect (open Windows Firewall for the game)"; GroupDescription: "Networking:"
 
 [Files]
 Source: "dist\ArtilleryDuel.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "install_tailscale.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "firewall_rule.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -69,6 +71,14 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
+    if WizardIsTaskSelected('firewallrule') then
+    begin
+      ExtractTemporaryFile('firewall_rule.ps1');
+      ScriptPath := ExpandConstant('{tmp}\firewall_rule.ps1');
+      Exec('powershell.exe',
+           '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"',
+           '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
     if WizardIsTaskSelected('installtailscale') and TailscaleMissing() then
     begin
       ExtractTemporaryFile('install_tailscale.ps1');

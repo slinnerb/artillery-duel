@@ -21,10 +21,31 @@ friend just clicks it and gets the latest build automatically.
 | Aim barrel up / down | `W` / `S` or `↑` / `↓` |
 | Charge & fire | Hold `SPACE` to build power, release to shoot |
 | Switch weapon | `1` Shell · `2` Big Bomb · `3` Cluster · `4` Bouncer |
+| Reload (type for shells) | `TAB` |
 | Back to menu | `ESC` |
 
 Watch the **wind** arrow at the top — it pushes your shells sideways. After
 each shot there's a short reload before you can fire again.
+
+**The battlefield scrolls.** It's wider than the screen, and the camera follows
+your tank — drive toward your opponent to get in range. When they're off-screen,
+a coloured arrow at the screen edge points to them with the distance.
+
+**Mind the lava.** A molten sea sits at the bottom, with chasms cut down into it.
+Drive into one — or get blasted into a deep crater — and you're dead. Use it: a
+well-placed shell can drop a tank straight into the lava.
+
+**The basic Shell is unlimited — special weapons aren't.** You can always fire
+the `1` Shell (marked `∞`). Big Bomb, Cluster, and Bouncer each cost a **special
+shell** (the pips bottom-left). You start a round with a few; to get more, hit
+`TAB` to drop into reload mode and **type the sentences** — each one you finish
+loads a special shell — then `TAB` back to fight. Pick a special with none left
+and the game points you to `1` (the Shell) or `TAB` to reload. Reload while
+you're safe; stopping to type leaves you a sitting duck.
+
+**Backgrounds.** Drop image files into `assets/backgrounds/` and the game
+randomly uses one as the backdrop in about 1 in 3 matches (see that folder's
+README). Empty folder → the normal painted sky.
 
 ---
 
@@ -50,10 +71,10 @@ PCs act like they're on the same home network.
    works for a 2-person game).
 3. Find each PC's Tailscale IP — it starts with `100.` (Tailscale app → it's
    shown next to your machine, or run `tailscale ip -4`).
-4. **Host:** open the game → **Host Game**. It shows your addresses; the one
-   starting with `100.` is your Tailscale IP.
-5. **Joiner:** open the game → **Join Game** → type the host's `100.x.y.z` IP →
-   Enter.
+4. **Host:** open the game → **Host Game**. It shows the address to send and a
+   **Copy** button (or press `C`); paste it to your friend in any chat.
+5. **Joiner:** open the game → **Join Game** → paste the address with **Ctrl+V**
+   (or type the host's `100.x.y.z` IP) → Enter.
 
 That's it — you're in the same match. (On a real LAN you can skip Tailscale and
 just use the `192.168.x.x` address instead.)
@@ -137,6 +158,29 @@ receives. Simple and impossible to desync. The trade-off is the joiner sees a
 few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
 
 ## Shipped
+- **v1.0.8 — Unlimited Shell, firewall on install, drop-in backgrounds.** The
+  basic `1` Shell is now unlimited (marked `∞`); only the special weapons (Big
+  Bomb / Cluster / Bouncer) cost a typed-reload shell, so you're never stuck
+  unable to fire — there's always a fallback. The installer now opens Windows
+  Firewall for the game (TCP 50713) via a self-elevating helper, so a friend can
+  connect without you hand-adding a rule. And any image dropped in
+  `assets/backgrounds/` becomes a random match backdrop (~1 in 3 games); the
+  choice rides along in the snapshot so host and client see the same one.
+- **v1.0.7 — Scrolling battlefield, lava & typed reloads.** The arena is now
+  wider than the screen and the camera follows your tank (drive toward the enemy
+  to get in range; an edge arrow points to them when they're off-screen). A lava
+  sea with chasms runs along the bottom — fall in, or get blasted into a deep
+  crater, and you die. Shells are now limited: you start each round with a few and
+  reload by pressing `TAB` and **typing sentences** (each one = one shell), then
+  `TAB` back to the fight. Run dry and you're forced to type. Works in Host, Join,
+  and Practice; the reload counter syncs over the network the same idempotent way
+  craters do. (Typing Duel is unchanged — there typing already *is* the trigger.)
+- **v1.0.6 — One-click address sharing.** The Host screen now shows the single
+  best address to send (your Tailscale `100.` IP, found via the Tailscale CLI so
+  it's never missed) with a **Copy** button (or press `C`). The Join screen takes
+  a paste with **Ctrl+V**, so your friend pastes exactly what you sent instead of
+  hand-typing an IP — no more typos causing "socket error". Failed connections now
+  explain the usual causes (wrong address, not on Tailscale, host firewall).
 - **v1.0.5 — Typing Duel.** A solo mode where typing is your trigger: a sentence
   appears, and each one you finish correctly auto-fires a shell at the CPU (it
   aims for you, since your hands are on the keyboard). Out-type the CPU's reload

@@ -9,7 +9,7 @@ import math
 import random
 
 from game import (W, GRAVITY, BODY_H, BARREL_LEN, POWER_MIN, POWER_MAX,
-                  AIM_DEG, WEAPONS)
+                  AIM_DEG, WEAPONS, LAVA_DEATH_Y)
 
 _NEUTRAL = {"left": False, "right": False, "up": False, "down": False, "fire": False, "weapon": 0}
 
@@ -27,7 +27,7 @@ def _simulate(world, me, angle, power, speed):
         vy += GRAVITY
         x += vx
         y += vy
-        if x < -60 or x > W + 60:
+        if x < -60 or x > world.terrain.width + 60:
             return x
         if y >= world.terrain.height_at(x):
             return x
@@ -51,18 +51,41 @@ def solve_shot(world, me, tgt, scatter=45.0, weapon=None):
 
 
 class Bot:
-    def __init__(self, index, scatter=45.0):
+    def __init__(self, index, scatter=45.0, engage=540.0):
         self.i = index
         self.tgt = 1 - index
         self.scatter = scatter      # aim error in px — higher = easier
+        self.engage = engage        # drive until this close, then hold and fire
         self.plan = None            # (angle, power, weapon)
         self.phase = "aim"
         self.weapon = 0
 
+    def _safe_ahead(self, world, me, direction):
+        """True if the bot can take a step `direction` without driving into lava."""
+        ahead = me.x + direction * 18
+        if not (40 <= ahead <= world.terrain.width - 40):
+            return False
+        return world.terrain.height_at(ahead) < LAVA_DEATH_Y - 6
+
     def input(self, world):
         me, tgt = world.tanks[self.i], world.tanks[self.tgt]
         inp = dict(_NEUTRAL)
-        if me.reload > 0 or me.hp <= 0 or tgt.hp <= 0:
+        if me.hp <= 0 or tgt.hp <= 0:
+            self.plan, self.phase = None, "aim"
+            inp["weapon"] = self.weapon
+            return inp
+
+        # Close the distance until in range — but never roll into a lava chasm.
+        if (me.reload <= 0 and not me.charging and self.plan is None
+                and abs(tgt.x - me.x) > self.engage):
+            direction = 1 if tgt.x > me.x else -1
+            if self._safe_ahead(world, me, direction):
+                inp["weapon"] = self.weapon
+                inp["right"], inp["left"] = direction > 0, direction < 0
+                return inp
+            # blocked by the chasm: hold position and fire across it
+
+        if me.reload > 0:
             self.plan, self.phase = None, "aim"
             inp["weapon"] = self.weapon
             return inp

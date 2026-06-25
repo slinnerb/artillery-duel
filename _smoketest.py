@@ -14,13 +14,18 @@ fonts = (pygame.font.SysFont("consolas", 16),
 import resources
 resources.load()
 import effects
-from game import World, Terrain, render, draw_world, draw_match_overlay, NEUTRAL_INPUT, WEAPONS, TANK_HP, W, H
+from game import (World, Terrain, render, draw_world, draw_match_overlay, camera_x,
+                  ReloadTyper, NEUTRAL_INPUT, WEAPONS, TANK_HP, W, H, WORLD_W,
+                  START_AMMO, AMMO_MAX, LAVA_DEATH_Y)
 from bot import Bot, solve_shot
 import typing_mode
 from updater import _parse
 
-assert len(resources._SPRITES) == 13, "sprites failed to load"
-print(f"[ok] assets loaded ({len(resources._SPRITES)} sprites, audio_ok={resources.audio_ok})")
+# Check the named sprites specifically — NOT len(_SPRITES), because drop-in
+# backgrounds also live in that dict (under "bg:" keys) and would inflate it.
+assert all(resources.has(n) for n in resources._SPRITE_NAMES), "sprites failed to load"
+print(f"[ok] assets loaded ({len(resources._SPRITE_NAMES)} sprites, "
+      f"{len(resources.backgrounds())} backgrounds, audio_ok={resources.audio_ok})")
 
 # 1) terrain determinism: same seed -> identical ground
 t1 = Terrain(12345); t2 = Terrain(12345)
@@ -38,28 +43,32 @@ assert red.hp == 0, f"Red should be dead, hp={red.hp}"
 assert world.phase == "over" and world.winner == 0, "match should end with Blue winning"
 print("[ok] blast damage + win condition work")
 
-# 2b) an actually-aimed shot can fly across the map and hit the far tank
+# 2b) an actually-aimed shot can hit the enemy once you've closed to fire range
+#     (tanks now spawn far apart and drive together, so park them in range first)
 hit_with = None
-for angle in (42, 45, 48, 50):
-    for p10 in range(130, 181, 5):          # power 13.0 .. 18.0
+for angle in range(40, 64, 3):
+    for p10 in range(120, 181, 5):          # power 12.0 .. 18.0
         w = World(777)
         w.wind = 0.0
         w.wind_timer = 10 ** 9              # freeze wind for a deterministic shot
-        w.tanks[0].angle = float(angle)
-        w.tanks[0].charge = p10 / 10.0
+        blue, red = w.tanks[0], w.tanks[1]
+        red.x = blue.x + 450                # both on the safe left flank, in range
+        red.y = w.terrain.height_at(red.x)
+        blue.angle = float(angle)
+        blue.charge = p10 / 10.0
         w._launch(0)
-        start_hp = w.tanks[1].hp
+        start_hp = red.hp
         for _ in range(600):
             w.step([NEUTRAL_INPUT, NEUTRAL_INPUT])
             if not w.projectiles:
                 break
-        if w.tanks[1].hp < start_hp:
+        if red.hp < start_hp:
             hit_with = (angle, p10 / 10.0)
             break
     if hit_with:
         break
-assert hit_with, "no angle/power combo ever hit the far tank — the game isn't winnable"
-print(f"[ok] a fired shot reaches and damages the far tank (angle={hit_with[0]}, power={hit_with[1]})")
+assert hit_with, "no angle/power combo ever hit the enemy in range — the game isn't winnable"
+print(f"[ok] a fired shot reaches and damages an in-range enemy (angle={hit_with[0]}, power={hit_with[1]})")
 
 # 2c) destructible terrain: a blast lowers the ground, and the client can rebuild
 #     the identical terrain from the snapshot's crater log.
@@ -70,7 +79,7 @@ w._explode(x0, before)                       # blast on the surface
 after = w.terrain.height_at(x0)
 assert after > before, f"ground should drop (y grows down): before={before}, after={after}"
 assert len(w.snapshot()["craters"]) == 1, "crater not recorded in snapshot"
-client_terrain = Terrain(777, W, H)          # fresh terrain from same seed...
+client_terrain = Terrain(777, WORLD_W, H)    # fresh terrain from same seed...
 for c in w.snapshot()["craters"]:            # ...plus the crater log...
     client_terrain.apply_crater(c["x"], c["y"], c["r"])
 assert client_terrain.ground == w.terrain.ground, "client terrain diverged from host"
@@ -159,6 +168,9 @@ print("[ok] host clamps malformed remote weapon index")
 
 # 2j) the CPU bot (practice mode) aims, fires, and actually lands hits
 wbot = World(123)
+wbot.tanks[1].x = wbot.tanks[0].x + 460       # close to fire range (player drives in)
+wbot.tanks[1].y = wbot.terrain.height_at(wbot.tanks[1].x)
+wbot.tanks[1].ammo = 999                       # CPU doesn't reload in practice
 b = Bot(1)
 fired = False
 for _ in range(60 * 40):                       # up to ~40 simulated seconds
@@ -183,6 +195,70 @@ draw_world(screen, wt.terrain, wt.snapshot(), None)       # refactored scene pat
 draw_match_overlay(screen, fonts, {"match_phase": "match_over", "scores": [3, 1],
                                    "tanks": wt.snapshot()["tanks"], "round_winner": 0})
 print(f"[ok] typing mode: {len(typing_mode.SENTENCES)} sentences, auto-fire + draw split work")
+
+# 2l) special weapons cost ammo; the basic Shell (index 0) is unlimited
+wa = World(50)
+wa.tanks[0].ammo = 1
+wa.tanks[0].weapon = 1                               # Big Bomb (a special)
+wa.tanks[0].charge = 15.0; wa._launch(0)
+assert wa.tanks[0].ammo == 0, f"a special shot should spend a shell: {wa.tanks[0].ammo}"
+n = len(wa.projectiles)
+wa.tanks[0].charge = 15.0; wa._launch(0)            # special + empty -> no fire
+assert len(wa.projectiles) == n, "a special weapon must not fire when empty"
+wa.tanks[0].weapon = 0                               # basic Shell: unlimited
+wa.tanks[0].charge = 15.0; wa._launch(0)
+assert len(wa.projectiles) == n + 1 and wa.tanks[0].ammo == 0, "basic Shell should fire free"
+print("[ok] special weapons cost ammo; the basic Shell is unlimited")
+
+# 2m) reload-by-typing: a rising 'typed' counter in input adds shells, idempotently
+wr = World(51)
+wr.tanks[1].ammo = 0
+inp = dict(NEUTRAL_INPUT); inp["typed"] = 3
+wr.step([NEUTRAL_INPUT, inp])                        # 3 sentences typed -> +3
+assert wr.tanks[1].ammo == 3, wr.tanks[1].ammo
+wr.step([NEUTRAL_INPUT, inp])                        # same counter -> no double credit
+assert wr.tanks[1].ammo == 3, "typed credit must be idempotent"
+inp["typed"] = 999
+wr.step([NEUTRAL_INPUT, inp])                        # huge -> capped at AMMO_MAX
+assert wr.tanks[1].ammo == AMMO_MAX, wr.tanks[1].ammo
+print(f"[ok] typing reloads ammo (idempotent, capped at {AMMO_MAX})")
+
+# 2n) lava: a tank standing in a chasm carved to the lava line dies
+wl = World(52)
+assert wl.terrain.lava_y, "a wide world should have a lava sea"
+lethal_x = next((x for x in range(wl.world_w) if wl.terrain.ground[x] >= LAVA_DEATH_Y), None)
+assert lethal_x is not None, "expected at least one lava chasm"
+wl.tanks[0].x = float(lethal_x)
+wl.step([NEUTRAL_INPUT, NEUTRAL_INPUT])              # settles into the lava
+assert wl.tanks[0].hp == 0 and wl.phase == "over" and wl.winner == 1, "lava should kill + end round"
+print("[ok] lava chasm kills a tank that stands in it")
+
+# 2o) camera follows the local tank and clamps to the world edges
+csnap = World(60).snapshot()
+csnap["tanks"][0]["x"] = 0
+assert camera_x(csnap, 0, WORLD_W) == 0
+csnap["tanks"][0]["x"] = WORLD_W
+assert camera_x(csnap, 0, WORLD_W) == WORLD_W - W
+csnap["tanks"][0]["x"] = WORLD_W / 2
+assert camera_x(csnap, 0, WORLD_W) == WORLD_W / 2 - W / 2
+assert camera_x(csnap, 0, W) == 0, "a screen-sized world should never scroll"
+print("[ok] camera follows local tank and clamps to world edges")
+
+# 2p) drop-in backgrounds: a registered backdrop can be picked and rendered, and
+#     it rides along in the snapshot so the client paints the same one
+import resources as _res
+_fake = pygame.Surface((1500, 1000)); _fake.fill((90, 40, 60))
+_res._SPRITES["bg:_test"] = _res._cover_scale(_fake, _res.SCREEN_W, _res.SCREEN_H)
+_res._BACKGROUNDS.append("bg:_test")
+assert _res.has("bg:_test") and _res.random_background(chance=1.0) == "bg:_test"
+assert _res.random_background(chance=0.0) is None, "chance 0 should never pick a backdrop"
+wbg = World(7)
+sbg = wbg.snapshot(); sbg.update({"bg": "bg:_test"})
+import json as _json
+_json.dumps(sbg)                                     # bg key must stay JSON-safe
+render(screen, fonts, wbg.terrain, sbg, local_index=0, version="test")   # photo-bg path
+_res._BACKGROUNDS.remove("bg:_test"); del _res._SPRITES["bg:_test"]
+print("[ok] drop-in background loads, is chosen by chance, and renders + syncs")
 
 # 3) snapshot is JSON-serialisable (it crosses the network)
 import json
