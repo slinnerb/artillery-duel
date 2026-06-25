@@ -1,5 +1,6 @@
 """Artillery Duel — entry point: menu, match loops, and the update flow."""
 
+import random
 import sys
 import threading
 
@@ -13,6 +14,7 @@ from netcode import Server, Client, PORT, local_ips
 from updater import check_for_update, apply_update, cleanup_old, is_frozen
 import resources
 import effects
+from bot import Bot
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +75,11 @@ def confirm_screen(screen, clock, fonts, text):
 def menu_screen(screen, clock, fonts):
     small, font, big = fonts
     items = [("Host Game", "host"), ("Join Game", "join"),
+             ("Practice vs CPU", "practice"),
              ("Check for Updates", "update"), ("Quit", "quit")]
     sel = 0
     while True:
-        rects = [pygame.Rect(W // 2 - 165, 235 + i * 72, 330, 56) for i in range(len(items))]
+        rects = [pygame.Rect(W // 2 - 165, 196 + i * 64, 330, 54) for i in range(len(items))]
         mouse = pygame.mouse.get_pos()
         for e in pygame.event.get():
             if e.type == QUIT:
@@ -88,7 +91,7 @@ def menu_screen(screen, clock, fonts):
                     sel = (sel - 1) % len(items)
                 elif e.key in (K_RETURN, K_SPACE):
                     return items[sel][1]
-                elif K_1 <= e.key <= K_4:
+                elif K_1 <= e.key < K_1 + len(items):
                     return items[e.key - K_1][1]
             if e.type == MOUSEBUTTONDOWN and e.button == 1:
                 for i, r in enumerate(rects):
@@ -318,6 +321,65 @@ def run_client(screen, clock, fonts, client):
         clock.tick(FPS)
 
 
+def run_practice(screen, clock, fonts):
+    seed = random.randrange(1, 1_000_000)
+    world = World(seed)
+    world.tanks[1].name = "CPU"
+    fx = effects.FX()
+    bot = Bot(1)
+    scores = [0, 0]
+    rnd = 1
+    mphase = "playing"
+    round_winner = None
+    timer = 0
+    weapon = 0
+    while True:
+        for e in pygame.event.get():
+            if e.type == QUIT:
+                _quit()
+            if e.type == KEYDOWN and e.key == K_ESCAPE:
+                return
+            if e.type == KEYDOWN and e.key == K_RETURN and mphase == "match_over":
+                return
+
+        keys = pygame.key.get_pressed()
+        weapon = weapon_from_keys(keys, weapon)
+
+        if mphase == "playing":
+            inp = read_input(keys)
+            inp["weapon"] = weapon
+            world.step([inp, bot.input(world)])
+            if world.phase == "over":
+                round_winner = world.winner
+                if round_winner is not None:
+                    scores[round_winner] += 1
+                mphase = "match_over" if max(scores) >= ROUNDS_TO_WIN else "round_over"
+                timer = int(FPS * 2.6)
+        else:
+            world.step([NEUTRAL_INPUT, NEUTRAL_INPUT])
+            if mphase == "round_over":
+                timer -= 1
+                if timer <= 0:
+                    rnd += 1
+                    seed = random.randrange(1, 1_000_000)
+                    world = World(seed)
+                    world.tanks[1].name = "CPU"
+                    fx = effects.FX()
+                    bot = Bot(1)
+                    mphase = "playing"
+                    round_winner = None
+
+        snap = world.snapshot()
+        snap.update({"scores": scores, "round": rnd, "seed": seed,
+                     "needed": ROUNDS_TO_WIN, "match_phase": mphase,
+                     "round_winner": round_winner})
+        fx.observe(snap, 0)
+        fx.update()
+        render(screen, fonts, world.terrain, snap, local_index=0, version=__version__, fx=fx)
+        pygame.display.flip()
+        clock.tick(FPS)
+
+
 # ---------------------------------------------------------------------------
 # Update flow
 # ---------------------------------------------------------------------------
@@ -404,6 +466,8 @@ def main():
             addr = join_input_screen(screen, clock, fonts)
             if addr:
                 do_join(screen, clock, fonts, addr)
+        elif choice == "practice":
+            run_practice(screen, clock, fonts)
         elif choice == "update":
             do_update(screen, clock, fonts)
         elif choice == "quit":

@@ -14,7 +14,8 @@ fonts = (pygame.font.SysFont("consolas", 16),
 import resources
 resources.load()
 import effects
-from game import World, Terrain, render, NEUTRAL_INPUT, WEAPONS, W, H
+from game import World, Terrain, render, NEUTRAL_INPUT, WEAPONS, TANK_HP, W, H
+from bot import Bot
 from updater import _parse
 
 assert len(resources._SPRITES) == 13, "sprites failed to load"
@@ -154,6 +155,19 @@ for badval in (99, -1, "x", None):
 wsafe.tanks[1].charge = 15.0
 wsafe._launch(1)                               # must not raise IndexError
 print("[ok] host clamps malformed remote weapon index")
+
+# 2j) the CPU bot (practice mode) aims, fires, and actually lands hits
+wbot = World(123)
+b = Bot(1)
+fired = False
+for _ in range(60 * 40):                       # up to ~40 simulated seconds
+    wbot.step([NEUTRAL_INPUT, b.input(wbot)])  # bot is tank 1; tank 0 sits still
+    fired = fired or bool(wbot.projectiles)
+    if wbot.phase == "over":
+        break
+assert fired, "bot never fired a shot"
+assert wbot.tanks[0].hp < TANK_HP, f"bot dealt no damage in 40s (hp={wbot.tanks[0].hp})"
+print(f"[ok] CPU bot aims and lands hits (target down to {wbot.tanks[0].hp:.0f} hp)")
 
 # 3) snapshot is JSON-serialisable (it crosses the network)
 import json

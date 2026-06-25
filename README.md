@@ -137,6 +137,10 @@ receives. Simple and impossible to desync. The trade-off is the joiner sees a
 few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
 
 ## Shipped
+- **v1.0.4 — Practice mode.** A "Practice vs CPU" option on the menu drops you
+  into a best-of-5 match against an AI that aims for real — it simulates shots
+  against the current wind and terrain to find a firing solution. Great for
+  learning the weapons, or playing when your friend is offline.
 - **v1.0.3 — Weapons & rounds.** Pick a weapon with `1`–`4` — Shell, Big Bomb
   (huge blast), Cluster (airbursts into 5 submunitions), or Bouncer (skips along
   the terrain). Matches are now best-of-5 with a live scoreboard, and every
