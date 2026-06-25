@@ -13,10 +13,14 @@ Messages are newline-delimited JSON:
 import json
 import random
 import socket
+import subprocess
 import threading
 import time
 
 PORT = 50713
+
+# Hide the console window the Tailscale CLI would otherwise flash (Windows).
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def _send(sock, obj):
@@ -55,6 +59,45 @@ def local_ips():
     except OSError:
         pass
     return sorted(ips)
+
+
+def tailscale_ip():
+    """This machine's Tailscale IPv4 (100.x.y.z), or None if not on Tailscale.
+
+    getaddrinfo() doesn't always surface the Tailscale adapter, so we ask the
+    Tailscale CLI directly — this is the address your friend actually needs.
+    """
+    for exe in ("tailscale", r"C:\Program Files\Tailscale\tailscale.exe"):
+        try:
+            out = subprocess.run([exe, "ip", "-4"], capture_output=True,
+                                 text=True, timeout=4, creationflags=_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("100."):
+                return line
+        return None      # CLI ran but returned nothing usable
+    return None
+
+
+def shareable_address(ips=None, ts=None):
+    """The single best address to send a friend, plus the full list to show.
+
+    Prefers the Tailscale IP (works over the internet), then a private LAN
+    address. Returns (best_or_None, ordered_list_of_all).
+    """
+    ips = local_ips() if ips is None else list(ips)
+    ts = tailscale_ip() if ts is None else ts
+    if ts and ts not in ips:
+        ips.insert(0, ts)
+    best = next((ip for ip in ips if ip.startswith("100.")), None)
+    if best is None:
+        best = next((ip for ip in ips
+                     if ip.startswith(("192.168.", "10.", "172."))), None)
+    if best is None and ips:
+        best = ips[0]
+    return best, ips
 
 
 class Server:

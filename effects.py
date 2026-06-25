@@ -37,12 +37,12 @@ class Particle:
         self.ang += self.spin
         self.life -= 1
 
-    def draw(self, dest):
+    def draw(self, dest, ox=0, oy=0):
         f = self.life / self.maxlife
         scale = self.s1 + (self.s0 - self.s1) * f
         img = pygame.transform.rotozoom(resources.img(self.sprite), self.ang, max(0.05, scale))
         img.set_alpha(int(255 * max(0.0, f) ** self.fadepow))
-        dest.blit(img, (self.x - img.get_width() / 2, self.y - img.get_height() / 2))
+        dest.blit(img, (self.x + ox - img.get_width() / 2, self.y + oy - img.get_height() / 2))
 
 
 class FX:
@@ -135,6 +135,6 @@ class FX:
             return (0, 0)
         return (random.uniform(-self.shake, self.shake), random.uniform(-self.shake, self.shake))
 
-    def draw(self, dest):
+    def draw(self, dest, ox=0, oy=0):
         for p in self.particles:
-            p.draw(dest)
+            p.draw(dest, ox, oy)

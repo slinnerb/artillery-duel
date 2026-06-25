@@ -11,27 +11,11 @@ import sys
 import pygame
 from pygame.locals import *  # noqa: F401,F403
 
-from game import (World, NEUTRAL_INPUT, ROUNDS_TO_WIN, FPS, W, H,
+from game import (World, NEUTRAL_INPUT, ROUNDS_TO_WIN, FPS, W, H, SENTENCES,
                   draw_world, draw_match_overlay, _draw_hp, _draw_scoreboard, _draw_wind)
 from bot import solve_shot
 import effects
-
-SENTENCES = [
-    "the quick brown fox", "load the cannon now", "aim for the hills",
-    "fire when ready", "wind from the east", "incoming round",
-    "steady your hands", "type fast to win", "another shell loaded",
-    "watch the trajectory", "left a little more", "boom goes the tank",
-    "keep on firing", "practice makes perfect", "the enemy is close",
-    "reload and repeat", "high arc shot", "low and fast", "mind the wind",
-    "direct hit", "almost got them", "hold the line", "one more round",
-    "victory is near", "stay on target", "quick fingers win",
-    "blast the bunker", "over the ridge", "adjust your aim", "perfect shot",
-    "the gun is hot", "shells away", "raining fire", "no time to waste",
-    "type it clean", "speed and accuracy", "lock and load", "down they go",
-    "final blow", "well aimed shot", "keep calm and type", "beat the clock",
-    "rapid fire mode", "earn your ammo", "words become shells",
-    "clear and concise", "tap the keys", "ready aim type", "long range strike",
-]
+import resources
 
 CPU_MIN, CPU_MAX = 330, 470     # frames between CPU shots (~5.5-7.8s); higher = easier
 
@@ -89,7 +73,9 @@ def run_typing(screen, clock, fonts):
 
     def new_world():
         s = random.randrange(1, 1_000_000)
-        w = World(s)
+        # Single-screen arena (no scrolling/lava) and unlimited ammo — here the
+        # typing itself is the trigger, not a shell count.
+        w = World(s, world_w=W, ammo=(999, 999))
         w.tanks[1].name = "CPU"
         return s, w
 
@@ -107,6 +93,7 @@ def run_typing(screen, clock, fonts):
     mphase = "playing"
     round_winner = None
     rtimer = 0
+    bg = resources.random_background()              # maybe a special backdrop
 
     while True:
         for e in pygame.event.get():
@@ -169,7 +156,7 @@ def run_typing(screen, clock, fonts):
         fx.observe(snap, 0)
         fx.update()
 
-        draw_world(screen, world.terrain, snap, fx)
+        draw_world(screen, world.terrain, snap, fx, bg=bg)
         _draw_hp(screen, font, snap["tanks"][0], 16, 14)
         _draw_hp(screen, font, snap["tanks"][1], W - 16, 14, right=True)
         _draw_wind(screen, small, snap["wind"])
