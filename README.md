@@ -137,6 +137,10 @@ receives. Simple and impossible to desync. The trade-off is the joiner sees a
 few milliseconds of input lag — unnoticeable over Tailscale for a casual game.
 
 ## Shipped
+- **v1.0.5 — Typing Duel.** A solo mode where typing is your trigger: a sentence
+  appears, and each one you finish correctly auto-fires a shell at the CPU (it
+  aims for you, since your hands are on the keyboard). Out-type the CPU's reload
+  to win. Live WPM + shells-fired counter, best-of-5.
 - **v1.0.4 — Practice mode.** A "Practice vs CPU" option on the menu drops you
   into a best-of-5 match against an AI that aims for real — it simulates shots
   against the current wind and terrain to find a firing solution. Great for

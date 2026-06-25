@@ -14,6 +14,7 @@ from netcode import Server, Client, PORT, local_ips
 from updater import check_for_update, apply_update, cleanup_old, is_frozen
 import resources
 import effects
+import typing_mode
 from bot import Bot
 
 
@@ -75,11 +76,11 @@ def confirm_screen(screen, clock, fonts, text):
 def menu_screen(screen, clock, fonts):
     small, font, big = fonts
     items = [("Host Game", "host"), ("Join Game", "join"),
-             ("Practice vs CPU", "practice"),
+             ("Practice vs CPU", "practice"), ("Typing Duel", "typing"),
              ("Check for Updates", "update"), ("Quit", "quit")]
     sel = 0
     while True:
-        rects = [pygame.Rect(W // 2 - 165, 196 + i * 64, 330, 54) for i in range(len(items))]
+        rects = [pygame.Rect(W // 2 - 165, 158 + i * 58, 330, 50) for i in range(len(items))]
         mouse = pygame.mouse.get_pos()
         for e in pygame.event.get():
             if e.type == QUIT:
@@ -103,7 +104,7 @@ def menu_screen(screen, clock, fonts):
 
         screen.fill(SKY)
         title = big.render("ARTILLERY DUEL", True, (235, 235, 245))
-        screen.blit(title, (W // 2 - title.get_width() // 2, 120))
+        screen.blit(title, (W // 2 - title.get_width() // 2, 92))
         for i, (label, _) in enumerate(items):
             r = rects[i]
             pygame.draw.rect(screen, (70, 90, 140) if i == sel else (45, 55, 80), r, border_radius=10)
@@ -468,6 +469,8 @@ def main():
                 do_join(screen, clock, fonts, addr)
         elif choice == "practice":
             run_practice(screen, clock, fonts)
+        elif choice == "typing":
+            typing_mode.run_typing(screen, clock, fonts)
         elif choice == "update":
             do_update(screen, clock, fonts)
         elif choice == "quit":

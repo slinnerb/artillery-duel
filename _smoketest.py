@@ -14,8 +14,9 @@ fonts = (pygame.font.SysFont("consolas", 16),
 import resources
 resources.load()
 import effects
-from game import World, Terrain, render, NEUTRAL_INPUT, WEAPONS, TANK_HP, W, H
-from bot import Bot
+from game import World, Terrain, render, draw_world, draw_match_overlay, NEUTRAL_INPUT, WEAPONS, TANK_HP, W, H
+from bot import Bot, solve_shot
+import typing_mode
 from updater import _parse
 
 assert len(resources._SPRITES) == 13, "sprites failed to load"
@@ -168,6 +169,20 @@ for _ in range(60 * 40):                       # up to ~40 simulated seconds
 assert fired, "bot never fired a shot"
 assert wbot.tanks[0].hp < TANK_HP, f"bot dealt no damage in 40s (hp={wbot.tanks[0].hp})"
 print(f"[ok] CPU bot aims and lands hits (target down to {wbot.tanks[0].hp:.0f} hp)")
+
+# 2k) typing mode: sentences are clean, the refactored draws work, and a
+#     completed sentence fires a shell
+assert typing_mode.SENTENCES and all(s == s.lower() and s.isprintable() for s in typing_mode.SENTENCES)
+wt = World(50)
+angle, power, wk = solve_shot(wt, wt.tanks[0], wt.tanks[1], scatter=5.0, weapon=0)
+assert 8 <= angle <= 89 and power > 0 and wk == 0, (angle, power, wk)
+n0 = len(wt.projectiles)
+typing_mode._fire(wt, 0, 1, scatter=5.0, weapon=0)
+assert len(wt.projectiles) == n0 + 1, "completing a sentence should launch a shell"
+draw_world(screen, wt.terrain, wt.snapshot(), None)       # refactored scene path
+draw_match_overlay(screen, fonts, {"match_phase": "match_over", "scores": [3, 1],
+                                   "tanks": wt.snapshot()["tanks"], "round_winner": 0})
+print(f"[ok] typing mode: {len(typing_mode.SENTENCES)} sentences, auto-fire + draw split work")
 
 # 3) snapshot is JSON-serialisable (it crosses the network)
 import json

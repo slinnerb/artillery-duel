@@ -443,28 +443,54 @@ def _draw_wind(screen, small, wind):
         pygame.draw.line(screen, (225, 225, 240), (ex, cy), (ex - 7 * d, cy + 5), 3)
 
 
-def render(screen, fonts, terrain, snap, local_index, version, fx=None):
-    small, font, big = fonts
+def draw_world(screen, terrain, snap, fx=None):
+    """Draw just the battlefield (sky, terrain, tanks, shells, particles, shake)."""
     scene, _, _ = _surfaces()
-
     scene.blit(resources.img("sky"), (0, 0))
     scene.blit(resources.img("hills_far"), (0, 80))
     scene.blit(resources.img("hills_near"), (0, 135))
     _draw_terrain(scene, terrain)
-
     for i, t in enumerate(snap["tanks"]):
         _draw_tank(scene, t, i)
-
     for p in snap["projectiles"]:
         pygame.draw.circle(scene, (24, 22, 26), (int(p["x"]), int(p["y"])), 5)
         pygame.draw.circle(scene, (255, 222, 120), (int(p["x"]), int(p["y"])), 3)
-
     if fx is not None:
         fx.draw(scene)
-
     dx, dy = fx.shake_offset() if fx is not None else (0, 0)
     screen.fill((8, 9, 14))
     screen.blit(scene, (int(dx), int(dy)))
+
+
+def draw_match_overlay(screen, fonts, snap):
+    """The round/match end banner, shared by all modes."""
+    small, font, big = fonts
+    mphase = snap.get("match_phase", "playing")
+    if mphase not in ("round_over", "match_over"):
+        return
+    overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+    overlay.fill((10, 12, 20, 180))
+    screen.blit(overlay, (0, 0))
+    scores = snap.get("scores", [0, 0])
+    rw = snap.get("round_winner")
+    if mphase == "round_over":
+        title = "ROUND DRAW" if rw is None else f"{snap['tanks'][rw]['name'].upper()} WINS THE ROUND"
+        sub = "next round starting..."
+    else:
+        mw = 0 if scores[0] >= scores[1] else 1
+        title = f"{snap['tanks'][mw]['name'].upper()} WINS THE MATCH!"
+        sub = "Press ENTER for menu"
+    t = big.render(title, True, (255, 235, 160))
+    screen.blit(t, (W // 2 - t.get_width() // 2, H // 2 - 72))
+    sc = font.render(f"{scores[0]}   -   {scores[1]}", True, (235, 235, 245))
+    screen.blit(sc, (W // 2 - sc.get_width() // 2, H // 2 - 8))
+    s = font.render(sub, True, (212, 218, 232))
+    screen.blit(s, (W // 2 - s.get_width() // 2, H // 2 + 36))
+
+
+def render(screen, fonts, terrain, snap, local_index, version, fx=None):
+    small, font, big = fonts
+    draw_world(screen, terrain, snap, fx)
 
     _draw_hp(screen, font, snap["tanks"][0], 16, 14)
     _draw_hp(screen, font, snap["tanks"][1], W - 16, 14, right=True)
@@ -484,32 +510,11 @@ def render(screen, fonts, terrain, snap, local_index, version, fx=None):
             screen.blit(lbl, (W // 2 - lbl.get_width() // 2, H - 64))
 
     _draw_weapons(screen, small, snap, local_index)
-
     hint = small.render(
         "Move: A/D   Aim: W/S   Weapon: 1-4   Fire: hold & release SPACE   ESC: menu",
         True, (185, 192, 208))
     screen.blit(hint, (W // 2 - hint.get_width() // 2, H - 22))
-
     ver = small.render(f"v{version}", True, (130, 140, 160))
     screen.blit(ver, (12, H - 22))
 
-    mphase = snap.get("match_phase", "playing")
-    if mphase in ("round_over", "match_over"):
-        overlay = pygame.Surface((W, H), pygame.SRCALPHA)
-        overlay.fill((10, 12, 20, 180))
-        screen.blit(overlay, (0, 0))
-        scores = snap.get("scores", [0, 0])
-        rw = snap.get("round_winner")
-        if mphase == "round_over":
-            title = "ROUND DRAW" if rw is None else f"{snap['tanks'][rw]['name'].upper()} WINS THE ROUND"
-            sub = "next round starting..."
-        else:
-            mw = 0 if scores[0] >= scores[1] else 1
-            title = f"{snap['tanks'][mw]['name'].upper()} WINS THE MATCH!"
-            sub = "Press ENTER for menu"
-        t = big.render(title, True, (255, 235, 160))
-        screen.blit(t, (W // 2 - t.get_width() // 2, H // 2 - 72))
-        sc = font.render(f"{scores[0]}   -   {scores[1]}", True, (235, 235, 245))
-        screen.blit(sc, (W // 2 - sc.get_width() // 2, H // 2 - 8))
-        s = font.render(sub, True, (212, 218, 232))
-        screen.blit(s, (W // 2 - s.get_width() // 2, H // 2 + 36))
+    draw_match_overlay(screen, fonts, snap)
